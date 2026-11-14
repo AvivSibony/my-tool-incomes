@@ -45,6 +45,13 @@ nav button{flex:1;padding:14px 4px;background:none;border:0;font:inherit;color:v
 nav button.on{color:var(--ink);font-weight:800}
 #toast{position:fixed;top:calc(env(safe-area-inset-top,0px) + 10px);inset-inline:16px;background:var(--ink);color:var(--bg);padding:12px 14px;border-radius:12px;text-align:center;font-weight:600;opacity:0;pointer-events:none;transition:opacity .2s}
 #toast.show{opacity:1}#toast.bad{background:var(--over);color:#fff}
+.pie{width:150px;height:150px;border-radius:50%;margin:14px auto}
+.leg{display:flex;flex-wrap:wrap;gap:6px 14px;justify-content:center;font-size:13px}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-inline-end:5px}
+.mnav{margin:6px 0 4px}.mnav b{font-size:18px}
+.mrow{margin:10px 0;cursor:pointer}.mrow.on b{text-decoration:underline}
+.mrow .bar i{background:var(--ink)}
+.facts{display:flex;gap:8px;margin:10px 0}.facts div{flex:1;background:var(--card);border-radius:12px;padding:10px;text-align:center;font-size:13px;color:var(--mute)}.facts b{display:block;font-size:17px;color:var(--ink)}
 </style>
 </head>
 <body>
@@ -68,8 +75,8 @@ const spent=(m,k)=>Math.round(m.expenses.filter(e=>e.cat===k).reduce((s,e)=>s+e.
 const alloc=(m,k)=>Math.round(m.salary*m.pct[k])/100;
 let tab='home';
 function render(){
-  const app=$('#app');app.replaceChildren(tab==='home'?home():tab==='add'?add():settings());
-  $('#nav').replaceChildren(...[['home','ראשי'],['add','+ הוצאה'],['set','הגדרות']].map(([k,n])=>h('button',{class:tab===k?'on':'',onclick:()=>{tab=k;render();scrollTo(0,0)}},n)));
+  const app=$('#app');app.replaceChildren(tab==='home'?home():tab==='add'?add():tab==='sum'?summary():settings());
+  $('#nav').replaceChildren(...[['home','ראשי'],['add','+ הוצאה'],['sum','סיכום'],['set','הגדרות']].map(([k,n])=>h('button',{class:tab===k?'on':'',onclick:()=>{tab=k;render();scrollTo(0,0)}},n)));
 }
 function home(){
   const m=cur(),over=[],totalSpent=m.expenses.reduce((s,e)=>s+e.amt,0);
@@ -81,10 +88,7 @@ function home(){
       h('div',{class:'left'},(left<0?'חריגה של ':'נשאר ')+f(Math.abs(left))),
       h('div',{class:'bar'},h('i',{style:'width:'+Math.min(100,r*100)+'%'})),
       h('div',{class:'sub'},'הוצאת '+f(s)+' מתוך '+f(a)))});
-  const list=[...m.expenses].sort((a,b)=>b.id-a.id).slice(0,8).map(e=>h('div',{class:'item'},
-    h('div',{class:'t'},e.desc||'ללא תיאור',h('small',{},CATS.find(c=>c[0]===e.cat)[1]+' · '+new Date(e.date).toLocaleDateString('he-IL'))),
-    h('b',{},f(e.amt)),
-    h('button',{class:'del','aria-label':'מחק',onclick:()=>{if(confirm('למחוק את ההוצאה?')){m.expenses=m.expenses.filter(x=>x.id!==e.id);save();render()}}},'×')));
+  const list=[...m.expenses].sort((a,b)=>b.id-a.id).slice(0,8).map(e=>exRow(m,e));
   return h('div',{},
     h('h1',{},new Date().toLocaleDateString('he-IL',{month:'long',year:'numeric'})),
     h('div',{class:'total'},f(m.salary-totalSpent),h('small',{},'נשאר מהשכר')),
@@ -92,6 +96,40 @@ function home(){
     over.length?h('div',{class:'banner'},'חריגה מהתקציב: '+over.join(', ')):'',
     ...cards,
     list.length?h('h2',{},'הוצאות אחרונות'):'',...list);
+}
+
+const COL={fixed:'#1f7a6d',lux:'#d98e04',save:'#3b6fb6',inv:'#7a4fa3'};
+const mTotal=m=>Math.round(m.expenses.reduce((x,e)=>x+e.amt,0)*100)/100;
+const mLabel=k=>new Date(k+'-01T12:00:00').toLocaleDateString('he-IL',{month:'long',year:'numeric'});
+function exRow(m,e){return h('div',{class:'item'},
+  h('div',{class:'t'},e.desc||'ללא תיאור',h('small',{},CATS.find(c=>c[0]===e.cat)[1]+' · '+new Date(e.date).toLocaleDateString('he-IL'))),
+  h('b',{},f(e.amt)),
+  h('button',{class:'del','aria-label':'מחק',onclick:()=>{if(confirm('למחוק את ההוצאה?')){m.expenses=m.expenses.filter(x=>x.id!==e.id);save();render()}}},'×'))}
+let vk=null;
+function summary(){
+  cur();const keys=Object.keys(db.months).sort();if(!vk||!db.months[vk])vk=mk();
+  const m=db.months[vk],i=keys.indexOf(vk),tot=mTotal(m);
+  const prev=h('button',{class:'del','aria-label':'חודש קודם',onclick:()=>{vk=keys[i-1];render()}},'›'),
+    next=h('button',{class:'del','aria-label':'חודש הבא',onclick:()=>{vk=keys[i+1];render()}},'‹');
+  prev.disabled=i<=0;next.disabled=i>=keys.length-1;
+  let acc=0;const stops=CATS.map(([k])=>{const v=tot>0?spent(m,k)/tot*100:0,t=COL[k]+' '+acc+'% '+(acc+v)+'%';acc+=v;return t}).join(',');
+  const legend=CATS.map(([k,n])=>h('span',{},h('i',{class:'dot',style:'background:'+COL[k]}),n+' '+(tot>0?Math.round(spent(m,k)/tot*100):0)+'%'));
+  const cats=CATS.map(([k,n])=>{const a=alloc(m,k),s=spent(m,k),r=a>0?s/a:(s>0?2:0);
+    return h('div',{class:'card '+(r>1?'over':r>=.8?'warn':'ok'),style:'margin:8px 0'},
+      h('div',{class:'row'},h('b',{},n),h('span',{class:'pct'},f(s)+' / '+f(a))),
+      h('div',{class:'bar'},h('i',{style:'width:'+Math.min(100,r*100)+'%'})))});
+  const trend=[...keys].reverse().map(k=>{const x=db.months[k],t=mTotal(x),r=x.salary>0?t/x.salary:(t>0?1:0);
+    return h('div',{class:'mrow'+(k===vk?' on':''),onclick:()=>{vk=k;render();scrollTo(0,0)}},
+      h('div',{class:'row'},h('b',{},mLabel(k)),h('span',{class:'pct'},f(t)+' מתוך '+f(x.salary))),
+      h('div',{class:'bar'},h('i',{style:'width:'+Math.min(100,r*100)+'%'})))});
+  const list=[...m.expenses].sort((a,b)=>b.date<a.date?-1:b.date>a.date?1:b.id-a.id).map(e=>exRow(m,e));
+  return h('div',{},
+    h('div',{class:'row mnav'},prev,h('b',{},mLabel(vk)),next),
+    h('div',{class:'facts'},h('div',{},'שכר',h('b',{},f(m.salary))),h('div',{},'הוצאות',h('b',{},f(tot))),h('div',{},m.salary-tot<0?'חריגה':'נשאר',h('b',{},f(Math.abs(m.salary-tot))))),
+    tot>0?h('div',{},h('div',{class:'pie',role:'img','aria-label':'חלוקת ההוצאות בפועל',style:'background:conic-gradient('+stops+')'}),h('div',{class:'leg'},legend)):h('div',{class:'hint'},'אין הוצאות בחודש הזה.'),
+    h('h2',{},'תקציב מול ביצוע'),...cats,
+    h('h2',{},'כל החודשים'),...trend,
+    list.length?h('h2',{},'הוצאות החודש'):'',...list);
 }
 function add(){
   const m=cur(),d=new Date(),iso=mk()+'-'+String(d.getDate()).padStart(2,'0');

@@ -6,6 +6,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="התקציב שלי">
 <meta name="theme-color" content="#f4f6f2">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="icon" type="image/png" href="icon-512.png">
 <title>התקציב שלי</title>
 <style>
 :root{--bg:#f4f6f2;--ink:#1b2a33;--mute:#62727b;--card:#fff;--line:#dde3dc;--ok:#1f7a6d;--warn:#d98e04;--over:#c0392b}
@@ -52,6 +54,7 @@ nav button.on{color:var(--ink);font-weight:800}
 .mrow{margin:10px 0;cursor:pointer}.mrow.on b{text-decoration:underline}
 .mrow .bar i{background:var(--ink)}
 .facts{display:flex;gap:8px;margin:10px 0}.facts div{flex:1;background:var(--card);border-radius:12px;padding:10px;text-align:center;font-size:13px;color:var(--mute)}.facts b{display:block;font-size:17px;color:var(--ink)}
+.pick{display:flex;gap:8px;margin:6px 0}.pick select{flex:1}
 </style>
 </head>
 <body>
@@ -107,24 +110,28 @@ function exRow(m,e){return h('div',{class:'item'},
   h('button',{class:'del','aria-label':'מחק',onclick:()=>{if(confirm('למחוק את ההוצאה?')){m.expenses=m.expenses.filter(x=>x.id!==e.id);save();render()}}},'×'))}
 let vk=null;
 function summary(){
-  cur();const keys=Object.keys(db.months).sort();if(!vk||!db.months[vk])vk=mk();
-  const m=db.months[vk],i=keys.indexOf(vk),tot=mTotal(m);
-  const prev=h('button',{class:'del','aria-label':'חודש קודם',onclick:()=>{vk=keys[i-1];render()}},'›'),
-    next=h('button',{class:'del','aria-label':'חודש הבא',onclick:()=>{vk=keys[i+1];render()}},'‹');
-  prev.disabled=i<=0;next.disabled=i>=keys.length-1;
+  cur();const keys=Object.keys(db.months).sort();if(!vk)vk=mk();
+  const[vy,vm]=vk.split('-'),m=db.months[vk];
+  const years=[...new Set([...keys.map(k=>k.slice(0,4)),mk().slice(0,4)])].sort().reverse();
+  const go=()=>{vk=ys.value+'-'+ms.value;render()};
+  const ys=h('select',{'aria-label':'שנה',onchange:go},years.map(y=>h('option',{value:y},y)));
+  const ms=h('select',{'aria-label':'חודש',onchange:go},Array.from({length:12},(_,i)=>h('option',{value:String(i+1).padStart(2,'0')},new Date(2000,i,1).toLocaleDateString('he-IL',{month:'long'}))));
+  ys.value=vy;ms.value=vm;
+  const pick=h('div',{class:'pick'},ms,ys);
+  const trend=[...keys].reverse().map(k=>{const x=db.months[k],t=mTotal(x),r=x.salary>0?t/x.salary:(t>0?1:0);
+    return h('div',{class:'mrow'+(k===vk?' on':''),onclick:()=>{vk=k;render();scrollTo(0,0)}},
+      h('div',{class:'row'},h('b',{},mLabel(k)),h('span',{class:'pct'},f(t)+' מתוך '+f(x.salary))),
+      h('div',{class:'bar'},h('i',{style:'width:'+Math.min(100,r*100)+'%'})))});
+  if(!m)return h('div',{},pick,h('div',{class:'hint'},'אין נתונים לחודש הזה.'),keys.length?h('h2',{},'חודשים עם נתונים'):'',...trend);
+  const tot=mTotal(m);
   let acc=0;const stops=CATS.map(([k])=>{const v=tot>0?spent(m,k)/tot*100:0,t=COL[k]+' '+acc+'% '+(acc+v)+'%';acc+=v;return t}).join(',');
   const legend=CATS.map(([k,n])=>h('span',{},h('i',{class:'dot',style:'background:'+COL[k]}),n+' '+(tot>0?Math.round(spent(m,k)/tot*100):0)+'%'));
   const cats=CATS.map(([k,n])=>{const a=alloc(m,k),s=spent(m,k),r=a>0?s/a:(s>0?2:0);
     return h('div',{class:'card '+(r>1?'over':r>=.8?'warn':'ok'),style:'margin:8px 0'},
       h('div',{class:'row'},h('b',{},n),h('span',{class:'pct'},f(s)+' / '+f(a))),
       h('div',{class:'bar'},h('i',{style:'width:'+Math.min(100,r*100)+'%'})))});
-  const trend=[...keys].reverse().map(k=>{const x=db.months[k],t=mTotal(x),r=x.salary>0?t/x.salary:(t>0?1:0);
-    return h('div',{class:'mrow'+(k===vk?' on':''),onclick:()=>{vk=k;render();scrollTo(0,0)}},
-      h('div',{class:'row'},h('b',{},mLabel(k)),h('span',{class:'pct'},f(t)+' מתוך '+f(x.salary))),
-      h('div',{class:'bar'},h('i',{style:'width:'+Math.min(100,r*100)+'%'})))});
   const list=[...m.expenses].sort((a,b)=>b.date<a.date?-1:b.date>a.date?1:b.id-a.id).map(e=>exRow(m,e));
-  return h('div',{},
-    h('div',{class:'row mnav'},prev,h('b',{},mLabel(vk)),next),
+  return h('div',{},pick,
     h('div',{class:'facts'},h('div',{},'שכר',h('b',{},f(m.salary))),h('div',{},'הוצאות',h('b',{},f(tot))),h('div',{},m.salary-tot<0?'חריגה':'נשאר',h('b',{},f(Math.abs(m.salary-tot))))),
     tot>0?h('div',{},h('div',{class:'pie',role:'img','aria-label':'חלוקת ההוצאות בפועל',style:'background:conic-gradient('+stops+')'}),h('div',{class:'leg'},legend)):h('div',{class:'hint'},'אין הוצאות בחודש הזה.'),
     h('h2',{},'תקציב מול ביצוע'),...cats,

@@ -69,7 +69,13 @@ const h=(t,a={},...c)=>{const e=document.createElement(t);for(const k in a){if(k
 const f=n=>(Math.round(n*100)/100).toLocaleString('he-IL',{maximumFractionDigits:2})+' ₪';
 let db={months:{}};
 try{const r=JSON.parse(localStorage.getItem(KEY));if(r&&r.months)db=r}catch(e){}
-function save(){try{localStorage.setItem(KEY,JSON.stringify(db));return true}catch(e){toast('השמירה נכשלה. בדוק שהאחסון בדפדפן לא חסום',1);return false}}
+let idbP=null;
+const idb=()=>idbP||(idbP=new Promise((ok,no)=>{const q=indexedDB.open('budget-db',1);q.onupgradeneeded=()=>q.result.createObjectStore('k');q.onsuccess=()=>ok(q.result);q.onerror=()=>no(q.error)}));
+const idbPut=v=>idb().then(d=>new Promise((ok,no)=>{const t=d.transaction('k','readwrite');t.objectStore('k').put(v,'db');t.oncomplete=ok;t.onerror=no})).catch(()=>{});
+const idbGet=()=>idb().then(d=>new Promise((ok,no)=>{const q=d.transaction('k').objectStore('k').get('db');q.onsuccess=()=>ok(q.result);q.onerror=no})).catch(()=>null);
+const hasData=x=>!!(x&&x.months&&Object.values(x.months).some(m=>m.salary>0||(m.expenses||[]).length));
+function save(){db.savedAt=Date.now();let ok=true;try{localStorage.setItem(KEY,JSON.stringify(db))}catch(e){ok=false}
+  idbPut(JSON.parse(JSON.stringify(db)));if(!ok)toast('השמירה נכשלה. בדוק שהאחסון בדפדפן לא חסום',1);return ok}
 function toast(t,bad){const el=$('#toast');el.textContent=t;el.className='show'+(bad?' bad':'');clearTimeout(toast.t);toast.t=setTimeout(()=>el.className='',2800)}
 const num=t=>{t=String(t).trim().replace(/\s/g,'');if(/^\d{1,3}(,\d{3})+(\.\d+)?$/.test(t))t=t.replace(/,/g,'');else t=t.replace(',','.');const v=parseFloat(t);return isFinite(v)?v:NaN};
 const mk=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')};
@@ -79,7 +85,7 @@ const alloc=(m,k)=>Math.round(m.salary*m.pct[k])/100;
 let tab='home';
 function render(){
   const app=$('#app');app.replaceChildren(tab==='home'?home():tab==='add'?add():tab==='sum'?summary():settings());
-  $('#nav').replaceChildren(...[['home','ראשי'],['add','+ הוצאה'],['sum','סיכום'],['set','הגדרות']].map(([k,n])=>h('button',{class:tab===k?'on':'',onclick:()=>{tab=k;render();scrollTo(0,0)}},n)));
+  $('#nav').replaceChildren(...[['home','ראשי'],['add','+ הוצאה'],['sum','היסטוריה'],['set','הגדרות']].map(([k,n])=>h('button',{class:tab===k?'on':'',onclick:()=>{tab=k;render();scrollTo(0,0)}},n)));
 }
 function home(){
   const m=cur(),over=[],totalSpent=m.expenses.reduce((s,e)=>s+e.amt,0);
@@ -96,8 +102,10 @@ function home(){
     h('h1',{},new Date().toLocaleDateString('he-IL',{month:'long',year:'numeric'})),
     h('div',{class:'total'},f(m.salary-totalSpent),h('small',{},'נשאר מהשכר')),
     m.salary<=0?h('div',{class:'hint'},'עוד לא הגדרת שכר. עבור להגדרות כדי להתחיל.'):'',
+    (Object.values(db.months).reduce((n,x)=>n+x.expenses.length,0)>=5&&(!db.lastBackup||Date.now()-db.lastBackup>30*864e5))?h('div',{class:'hint'},'לא גיבית את הנתונים כבר יותר מחודש. אפשר לגבות בהגדרות.'):'',
     over.length?h('div',{class:'banner'},'חריגה מהתקציב: '+over.join(', ')):'',
     ...cards,
+    h('button',{class:'btn alt',onclick:()=>{tab='sum';render();scrollTo(0,0)}},'היסטוריה של חודשים קודמים ›'),
     list.length?h('h2',{},'הוצאות אחרונות'):'',...list);
 }
 
@@ -174,10 +182,12 @@ function settings(){
     if(!confirm('השחזור יחליף את כל הנתונים הנוכחיים. להמשיך?'))return;db=j;if(save()){render();toast('הנתונים שוחזרו')}}catch(e){toast('הקובץ לא תקין',1)}};
   return h('div',{},h('h1',{},'הגדרות לחודש הנוכחי'),
     h('label',{},'שכר חודשי נטו (₪)'),sal,h('label',{},'חלוקה באחוזים'),...rows,tot,btn,
-    h('h2',{},'גיבוי'),
-    h('button',{class:'btn alt',onclick:()=>{const a=h('a',{href:URL.createObjectURL(new Blob([JSON.stringify(db)],{type:'application/json'})),download:'budget-backup-'+mk()+'.json'});a.click()}},'גבה לקובץ'),
+    h('h2',{},'גיבוי ושמירת נתונים'),h('div',{class:'hint'},'חודשים שמורים: '+Object.values(db.months).filter(x=>x.salary>0||x.expenses.length).length+' · נשמר אוטומטית פעמיים במכשיר · גיבוי אחרון לקובץ: '+(db.lastBackup?new Date(db.lastBackup).toLocaleDateString('he-IL'):'עדיין לא בוצע')),
+    h('button',{class:'btn alt',onclick:()=>{db.lastBackup=Date.now();save();const a=h('a',{href:URL.createObjectURL(new Blob([JSON.stringify(db)],{type:'application/json'})),download:'budget-backup-'+mk()+'.json'});a.click();toast('הגיבוי ירד כקובץ')}},'גבה לקובץ'),
     h('button',{class:'btn alt',onclick:()=>file.click()},'שחזר מקובץ'),file);
 }
+try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist()}catch(e){}
+idbGet().then(x=>{if(hasData(x)&&!hasData(db)){db=x;try{localStorage.setItem(KEY,JSON.stringify(db))}catch(e){}render();toast('הנתונים שוחזרו מהגיבוי האוטומטי')}else if(hasData(db))idbPut(JSON.parse(JSON.stringify(db)))});
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 render();
 </script>

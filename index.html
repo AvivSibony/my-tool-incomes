@@ -55,6 +55,8 @@ nav button.on{color:var(--ink);font-weight:800}
 .mrow .bar i{background:var(--ink)}
 .facts{display:flex;gap:8px;margin:10px 0}.facts div{flex:1;background:var(--card);border-radius:12px;padding:10px;text-align:center;font-size:13px;color:var(--mute)}.facts b{display:block;font-size:17px;color:var(--ink)}
 .pick{display:flex;gap:8px;margin:6px 0}.pick select{flex:1}
+.arrow{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:6px 18px;font-size:24px;line-height:1.2;color:var(--ink)}
+.mhead{margin:4px 0 8px}.mhead b{font-size:20px}
 </style>
 </head>
 <body>
@@ -79,7 +81,12 @@ function save(){db.savedAt=Date.now();let ok=true;try{localStorage.setItem(KEY,J
 function toast(t,bad){const el=$('#toast');el.textContent=t;el.className='show'+(bad?' bad':'');clearTimeout(toast.t);toast.t=setTimeout(()=>el.className='',2800)}
 const num=t=>{t=String(t).trim().replace(/\s/g,'');if(/^\d{1,3}(,\d{3})+(\.\d+)?$/.test(t))t=t.replace(/,/g,'');else t=t.replace(',','.');const v=parseFloat(t);return isFinite(v)?v:NaN};
 const mk=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')};
-function cur(){const k=mk();if(!db.months[k]){const pk=Object.keys(db.months).sort().pop(),p=pk&&db.months[pk];db.months[k]={salary:p?p.salary:0,pct:p?{...p.pct}:{fixed:50,lux:15,save:15,inv:20},expenses:[]};save()}return db.months[k]}
+function getM(k,create){if(db.months[k])return db.months[k];if(!create)return null;
+  const pk=Object.keys(db.months).filter(x=>x<k).sort().pop()||Object.keys(db.months).sort()[0],p=pk&&db.months[pk];
+  db.months[k]={salary:p?p.salary:0,pct:p?{...p.pct}:{fixed:50,lux:15,save:15,inv:20},expenses:[]};save();return db.months[k]}
+const cur=()=>getM(mk(),true);
+let hv=null;const hk=()=>hv||(hv=mk());
+const shift=(k,n)=>{const[y,m]=k.split('-').map(Number),d=new Date(y,m-1+n,1);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')};
 const spent=(m,k)=>Math.round(m.expenses.filter(e=>e.cat===k).reduce((s,e)=>s+e.amt,0)*100)/100;
 const alloc=(m,k)=>Math.round(m.salary*m.pct[k])/100;
 let tab='home';
@@ -88,7 +95,16 @@ function render(){
   $('#nav').replaceChildren(...[['home','ראשי'],['add','+ הוצאה'],['sum','היסטוריה'],['set','הגדרות']].map(([k,n])=>h('button',{class:tab===k?'on':'',onclick:()=>{tab=k;render();scrollTo(0,0)}},n)));
 }
 function home(){
-  const m=cur(),over=[],totalSpent=m.expenses.reduce((s,e)=>s+e.amt,0);
+  const k0=hk(),m=getM(k0,k0===mk());
+  const head=h('div',{},h('div',{class:'row mhead'},
+    h('button',{class:'arrow','aria-label':'חודש קודם',onclick:()=>{hv=shift(k0,-1);render()}},'›'),
+    h('b',{},mLabel(k0)),
+    h('button',{class:'arrow','aria-label':'חודש הבא',onclick:()=>{hv=shift(k0,1);render()}},'‹')),
+    k0!==mk()?h('button',{class:'btn alt',style:'margin:0 0 8px;padding:8px',onclick:()=>{hv=mk();render()}},'חזרה לחודש הנוכחי'):'');
+  if(!m)return h('div',{},head,h('div',{class:'hint'},'אין נתונים לחודש הזה.'),
+    h('button',{class:'btn',onclick:()=>{getM(k0,true);render()}},'התחל את החודש'),
+    h('button',{class:'btn alt',onclick:()=>{vk=k0;tab='sum';render();scrollTo(0,0)}},'היסטוריה של חודשים קודמים ›'));
+  const over=[],totalSpent=m.expenses.reduce((s,e)=>s+e.amt,0);
   const cards=CATS.map(([k,n])=>{
     const a=alloc(m,k),s=spent(m,k),left=a-s,r=a>0?s/a:(s>0?2:0),st=r>1?'over':r>=.8?'warn':'ok';
     if(st==='over')over.push(n);
@@ -99,13 +115,13 @@ function home(){
       h('div',{class:'sub'},'הוצאת '+f(s)+' מתוך '+f(a)))});
   const list=[...m.expenses].sort((a,b)=>b.id-a.id).slice(0,8).map(e=>exRow(m,e));
   return h('div',{},
-    h('h1',{},new Date().toLocaleDateString('he-IL',{month:'long',year:'numeric'})),
+    head,
     h('div',{class:'total'},f(m.salary-totalSpent),h('small',{},'נשאר מהשכר')),
     m.salary<=0?h('div',{class:'hint'},'עוד לא הגדרת שכר. עבור להגדרות כדי להתחיל.'):'',
     (Object.values(db.months).reduce((n,x)=>n+x.expenses.length,0)>=5&&(!db.lastBackup||Date.now()-db.lastBackup>30*864e5))?h('div',{class:'hint'},'לא גיבית את הנתונים כבר יותר מחודש. אפשר לגבות בהגדרות.'):'',
     over.length?h('div',{class:'banner'},'חריגה מהתקציב: '+over.join(', ')):'',
     ...cards,
-    h('button',{class:'btn alt',onclick:()=>{tab='sum';render();scrollTo(0,0)}},'היסטוריה של חודשים קודמים ›'),
+    h('button',{class:'btn alt',onclick:()=>{vk=k0;tab='sum';render();scrollTo(0,0)}},'היסטוריה של חודשים קודמים ›'),
     list.length?h('h2',{},'הוצאות אחרונות'):'',...list);
 }
 
@@ -147,18 +163,18 @@ function summary(){
     list.length?h('h2',{},'הוצאות החודש'):'',...list);
 }
 function add(){
-  const m=cur(),d=new Date(),iso=mk()+'-'+String(d.getDate()).padStart(2,'0');
+  const vm=hk(),d=new Date(),iso=vm===mk()?vm+'-'+String(d.getDate()).padStart(2,'0'):vm+'-01',[vy,vmo]=vm.split('-').map(Number);
   const amt=h('input',{type:'text',inputmode:'decimal',placeholder:'0'}),
     cat=h('select',{},CATS.map(([k,n])=>h('option',{value:k},n))),
     desc=h('input',{type:'text',placeholder:'למשל: סופר'}),
-    date=h('input',{type:'date',value:iso,min:mk()+'-01',max:mk()+'-'+String(new Date(d.getFullYear(),d.getMonth()+1,0).getDate()).padStart(2,'0')});
-  return h('div',{},h('h1',{},'הוצאה חדשה'),
+    date=h('input',{type:'date',value:iso,min:vm+'-01',max:vm+'-'+String(new Date(vy,vmo,0).getDate()).padStart(2,'0')});
+  return h('div',{},h('h1',{},'הוצאה חדשה · '+mLabel(vm)),
     h('label',{},'סכום (₪)'),amt,h('label',{},'קטגוריה'),cat,h('label',{},'תיאור (לא חובה)'),desc,h('label',{},'תאריך'),date,
     h('button',{class:'btn',onclick:()=>{
       const v=num(amt.value);
       if(!(v>0)||v>10000000){toast('הכנס סכום גדול מאפס',1);return}
-      if(!date.value||date.value.slice(0,7)!==mk()){toast('בחר תאריך בתוך החודש הנוכחי',1);return}
-      m.expenses.push({id:Date.now(),amt:Math.round(v*100)/100,cat:cat.value,desc:desc.value.trim().slice(0,60),date:date.value});
+      if(!date.value||date.value.slice(0,7)!==vm){toast('בחר תאריך בתוך '+mLabel(vm),1);return}
+      const m=getM(vm,true);m.expenses.push({id:Date.now(),amt:Math.round(v*100)/100,cat:cat.value,desc:desc.value.trim().slice(0,60),date:date.value});
       if(!save())return;
       const k=cat.value,name=CATS.find(c=>c[0]===k)[1];
       tab='home';render();
@@ -166,7 +182,7 @@ function add(){
     }},'שמור הוצאה'));
 }
 function settings(){
-  const m=cur(),sal=h('input',{type:'text',inputmode:'decimal',value:m.salary||''}),
+  const m=getM(hk(),true),sal=h('input',{type:'text',inputmode:'decimal',value:m.salary||''}),
     pin={},amts={},tot=h('div',{class:'total-line'}),btn=h('button',{class:'btn'},'שמור הגדרות');
   const rows=CATS.map(([k,n])=>{
     pin[k]=h('input',{type:'text',inputmode:'decimal',value:m.pct[k]});amts[k]=h('span',{class:'amt'});
@@ -180,7 +196,7 @@ function settings(){
   const file=h('input',{type:'file',accept:'.json',style:'display:none'});
   file.onchange=async()=>{try{const j=JSON.parse(await file.files[0].text());if(!j.months||typeof j.months!=='object')throw 0;
     if(!confirm('השחזור יחליף את כל הנתונים הנוכחיים. להמשיך?'))return;db=j;if(save()){render();toast('הנתונים שוחזרו')}}catch(e){toast('הקובץ לא תקין',1)}};
-  return h('div',{},h('h1',{},'הגדרות לחודש הנוכחי'),
+  return h('div',{},h('h1',{},'הגדרות · '+mLabel(hk())),
     h('label',{},'שכר חודשי נטו (₪)'),sal,h('label',{},'חלוקה באחוזים'),...rows,tot,btn,
     h('h2',{},'גיבוי ושמירת נתונים'),h('div',{class:'hint'},'חודשים שמורים: '+Object.values(db.months).filter(x=>x.salary>0||x.expenses.length).length+' · נשמר אוטומטית פעמיים במכשיר · גיבוי אחרון לקובץ: '+(db.lastBackup?new Date(db.lastBackup).toLocaleDateString('he-IL'):'עדיין לא בוצע')),
     h('button',{class:'btn alt',onclick:()=>{db.lastBackup=Date.now();save();const a=h('a',{href:URL.createObjectURL(new Blob([JSON.stringify(db)],{type:'application/json'})),download:'budget-backup-'+mk()+'.json'});a.click();toast('הגיבוי ירד כקובץ')}},'גבה לקובץ'),
